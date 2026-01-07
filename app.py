@@ -9,7 +9,6 @@ import os
 # ==========================================
 st.set_page_config(page_title="OficinaPro | Inteligência de Negócio", page_icon="💰", layout="wide")
 
-# CSS para cards financeiros profissionais
 st.markdown("""
     <style>
     [data-testid="stMetricValue"] { font-size: 28px; }
@@ -24,11 +23,12 @@ ADMIN_PASS = st.secrets["admin_password"]
 # 2. BANCO DE DADOS (DATABASE)
 # ==========================================
 def conectar():
+    # Nome atualizado conforme sua correção para evitar erros de esquema
     return sqlite3.connect('oficina_mecanica_V2.db', check_same_thread=False)
 
 def inicializar_db():
     conn = conectar(); cursor = conn.cursor()
-    # Tabela de usuários
+    # Tabela de usuários com controle de primeiro acesso
     cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
         id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, email TEXT UNIQUE, 
         cargo TEXT, nivel_acesso TEXT, senha_hash TEXT, primeiro_acesso INTEGER DEFAULT 1)''')
@@ -38,7 +38,7 @@ def inicializar_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT, peca TEXT, quantidade INTEGER, 
         quantidade_minima INTEGER, valor_compra REAL)''')
 
-    # Tabela de OS com Mão de Obra e Custo de Peças
+    # Tabela de OS completa com campos financeiros
     cursor.execute('''CREATE TABLE IF NOT EXISTS ordens_servico (
         id INTEGER PRIMARY KEY AUTOINCREMENT, carro_modelo TEXT, carro_placa TEXT, 
         id_mecanico TEXT, status_solicitacao TEXT DEFAULT 'Pendente',
@@ -52,7 +52,7 @@ def hash_senha(senha):
 inicializar_db()
 
 # ==========================================
-# 3. LÓGICA DE ACESSO
+# 3. LÓGICA DE ACESSO E SEGURANÇA
 # ==========================================
 if 'logado' not in st.session_state:
     st.session_state.update({'logado': False, 'perfil': None, 'nome': None})
@@ -62,7 +62,7 @@ if not st.session_state.logado:
     u = st.text_input("E-mail"); p = st.text_input("Senha", type="password")
     if st.button("Aceder"):
         if u == ADMIN_USER and p == ADMIN_PASS:
-            st.session_state.update({'logado': True, 'perfil': "Admin", 'nome': "Proprietário"})
+            st.session_state.update({'logado': True, 'perfil': "Admin", 'nome': "Proprietário", 'p_acesso': 0})
             st.rerun()
         else:
             conn = conectar(); cursor = conn.cursor()
@@ -74,89 +74,115 @@ if not st.session_state.logado:
             else: st.error("Dados incorretos.")
 
 else:
-    # --- MENU LATERAL ---
-    st.sidebar.markdown(f"### 🛠️ {st.session_state.perfil}")
-    aba = st.sidebar.radio("Menu", ["🏠 Início", "📋 Ordens de Serviço", "📦 Estoque", "💰 Financeiro", "⚙️ Administração"])
-
-    # --- ABA FINANCEIRO (O CORAÇÃO DO SISTEMA) ---
-    if aba == "💰 Financeiro":
-        st.header("💰 Inteligência Financeira e Lucratividade")
-        
-        if st.session_state.perfil in ["Admin", "Gerente"]:
-            conn = conectar()
-            df = pd.read_sql_query("SELECT valor_pecas, valor_mao_de_obra, valor_comissao FROM ordens_servico", conn)
-            conn.close()
-
-            if not df.empty:
-                # Cálculos de Negócio
-                receita_bruta = df['valor_pecas'].sum() + df['valor_mao_de_obra'].sum()
-                custo_pecas = df['valor_pecas'].sum()
-                total_comissoes = df['valor_comissao'].sum()
-                lucro_liquido = receita_bruta - custo_pecas - total_comissoes
-
-                # Exibição de Métricas em Cards
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Receita Total", f"R$ {receita_bruta:,.2f}")
-                m2.metric("Custo Peças", f"R$ {custo_pecas:,.2f}", delta="-Custo", delta_color="inverse")
-                m3.metric("Comissões", f"R$ {total_comissoes:,.2f}", delta="-Custo", delta_color="inverse")
-                m4.metric("Lucro Líquido", f"R$ {lucro_liquido:,.2f}", delta="Resultado Final")
-
-                st.write("---")
-                st.subheader("📊 Comparativo de Fluxo")
-                # Gráfico Simples de Barras
-                chart_data = pd.DataFrame({
-                    'Categoria': ['Receita Bruta', 'Custos (Peças + Comissões)', 'Lucro Real'],
-                    'Valores (R$)': [receita_bruta, (custo_pecas + total_comissoes), lucro_liquido]
-                })
-                st.bar_chart(chart_data.set_index('Categoria'))
-            else:
-                st.info("Sem dados financeiros registrados.")
-        else:
-            st.error("Acesso restrito.")
-
-    # --- ABA ORDENS DE SERVIÇO (ATUALIZADA PARA O FINANCEIRO) ---
-    elif aba == "📋 Ordens de Serviço":
-        st.header("📋 Gestão de Serviços")
-        with st.expander("➕ Nova O.S. (Preenchimento Administrativo)"):
-            with st.form("os_financeiro"):
-                col1, col2 = st.columns(2)
-                veiculo = col1.text_input("Veículo")
-                placa = col2.text_input("Placa")
-                v_pecas = col1.number_input("Valor total das Peças (R$)", min_value=0.0)
-                v_servico = col2.number_input("Valor da Mão de Obra (R$)", min_value=0.0)
-                comis = st.number_input("Comissão do Mecânico (R$)", min_value=0.0)
-                
-                if st.form_submit_button("Finalizar e Lançar no Financeiro"):
+    # --- TROCA DE SENHA OBRIGATÓRIA ---
+    if st.session_state.get('p_acesso') == 1 and st.session_state.perfil != "Admin":
+        st.header("🔒 Alteração de Senha Obrigatória")
+        st.info("Primeiro acesso detectado. Por favor, escolha uma senha segura.")
+        with st.form("form_nova_senha"):
+            n_senha = st.text_input("Nova Senha", type="password")
+            c_senha = st.text_input("Confirme a Senha", type="password")
+            if st.form_submit_button("Atualizar Senha"):
+                if n_senha == c_senha and len(n_senha) >= 6:
                     conn = conectar(); cursor = conn.cursor()
-                    cursor.execute("""INSERT INTO ordens_servico 
-                        (carro_modelo, carro_placa, valor_pecas, valor_mao_de_obra, valor_comissao, id_mecanico) 
-                        VALUES (?,?,?,?,?,?)""", (veiculo, placa, v_pecas, v_servico, comis, st.session_state.nome))
-                    conn.commit(); conn.close(); st.success("Lançamento concluído!")
+                    cursor.execute("UPDATE usuarios SET senha_hash = ?, primeiro_acesso = 0 WHERE email = ?", 
+                                   (hash_senha(n_senha), st.session_state.email_u))
+                    conn.commit(); conn.close()
+                    st.session_state.p_acesso = 0
+                    st.success("Senha atualizada! Entrando..."); st.rerun()
+                else: st.error("Senhas inválidas ou curtas (min 6 carac).")
+    
+    else:
+        # --- MENU LATERAL ---
+        st.sidebar.markdown(f"### 🛠️ {st.session_state.perfil}")
+        aba = st.sidebar.radio("Menu", ["🏠 Início", "📋 Ordens de Serviço", "📦 Estoque", "💰 Financeiro", "⚙️ Administração"])
 
-        # Listagem das O.S.
-        conn = conectar()
-        df_list = pd.read_sql_query("SELECT id, carro_modelo, carro_placa, valor_pecas + valor_mao_de_obra as Total FROM ordens_servico", conn)
-        st.dataframe(df_list, use_container_width=True, hide_index=True)
-        conn.close()
+        # 🏠 INÍCIO
+        if aba == "🏠 Início":
+            st.header(f"Olá, {st.session_state.nome}!")
+            c1, c2, c3 = st.columns(3)
+            conn = conectar()
+            pendentes = pd.read_sql_query("SELECT COUNT(*) FROM ordens_servico WHERE status_solicitacao='Pendente'", conn).iloc[0,0]
+            alertas = pd.read_sql_query("SELECT COUNT(*) FROM estoque WHERE quantidade <= quantidade_minima", conn).iloc[0,0]
+            conn.close()
+            c1.metric("Serviços Pendentes", pendentes)
+            c2.metric("Alertas de Estoque", alertas, delta_color="inverse", delta=-alertas if alertas > 0 else 0)
+            c3.metric("Sistema", "Online")
 
-    # (Manter as outras abas conforme o código anterior: Início, Estoque, Administração)
-    elif aba == "🏠 Início":
-        st.header(f"Olá, {st.session_state.nome}!")
-        st.write("Este é o seu resumo diário.")
-        # Lógica de resumo rápido...
-        
-    elif aba == "📦 Estoque":
-        st.header("📦 Inventário")
-        # Lógica de estoque...
+        # 💰 FINANCEIRO
+        elif aba == "💰 Financeiro":
+            st.header("💰 Inteligência Financeira")
+            if st.session_state.perfil in ["Admin", "Gerente"]:
+                conn = conectar()
+                df = pd.read_sql_query("SELECT valor_pecas, valor_mao_de_obra, valor_comissao FROM ordens_servico", conn)
+                conn.close()
+                if not df.empty:
+                    receita = df['valor_pecas'].sum() + df['valor_mao_de_obra'].sum()
+                    lucro = receita - df['valor_pecas'].sum() - df['valor_comissao'].sum()
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Receita Bruta", f"R$ {receita:,.2f}")
+                    m2.metric("Comissões", f"R$ {df['valor_comissao'].sum():,.2f}", delta_color="inverse")
+                    m3.metric("Lucro Líquido", f"R$ {lucro:,.2f}")
+                    st.bar_chart(df)
+                else: st.info("Sem dados financeiros.")
 
-    elif aba == "⚙️ Administração":
-        # Lógica de backup e usuários...
-        st.header("⚙️ Painel de Controle")
-        if st.session_state.perfil == "Admin":
-            if os.path.exists('oficina_mecanica.db'):
-                with open('oficina_mecanica.db', 'rb') as f:
-                    st.download_button("📥 Backup Completo", f, file_name="oficina.db")
+        # 📋 ORDENS DE SERVIÇO
+        elif aba == "📋 Ordens de Serviço":
+            st.header("📋 Gestão de Serviços")
+            with st.expander("➕ Lançar Nova O.S. Financeira"):
+                with st.form("os_fin"):
+                    col1, col2 = st.columns(2)
+                    v_mod = col1.text_input("Veículo"); v_pla = col2.text_input("Placa")
+                    v_p = col1.number_input("Total Peças (R$)", min_value=0.0)
+                    v_m = col2.number_input("Mão de Obra (R$)", min_value=0.0)
+                    com = st.number_input("Comissão (R$)", min_value=0.0)
+                    if st.form_submit_button("Lançar"):
+                        conn = conectar(); cursor = conn.cursor()
+                        cursor.execute("INSERT INTO ordens_servico (carro_modelo, carro_placa, valor_pecas, valor_mao_de_obra, valor_comissao, id_mecanico) VALUES (?,?,?,?,?,?)",
+                                       (v_mod, v_pla, v_p, v_m, com, st.session_state.nome))
+                        conn.commit(); conn.close(); st.success("Lançado!")
+            conn = conectar()
+            df_os = pd.read_sql_query("SELECT id, carro_modelo, carro_placa, (valor_pecas + valor_mao_de_obra) as Total FROM ordens_servico", conn)
+            st.dataframe(df_os, use_container_width=True, hide_index=True); conn.close()
 
-    if st.sidebar.button("🚪 Sair"):
-        st.session_state.logado = False
-        st.rerun()
+        # 📦 ESTOQUE
+        elif aba == "📦 Estoque":
+            st.header("📦 Inventário")
+            with st.expander("➕ Cadastrar Peça"):
+                with st.form("est"):
+                    n = st.text_input("Peça"); q = st.number_input("Qtd", min_value=0); m = st.number_input("Mín", min_value=1)
+                    if st.form_submit_button("Salvar"):
+                        conn = conectar(); cursor = conn.cursor()
+                        cursor.execute("INSERT INTO estoque (peca, quantidade, quantidade_minima) VALUES (?,?,?)", (n, q, m))
+                        conn.commit(); conn.close(); st.success("Salvo!"); st.rerun()
+
+        # ⚙️ ADMINISTRAÇÃO
+        elif aba == "⚙️ Administração":
+            if st.session_state.perfil == "Admin":
+                st.header("⚙️ Ferramentas Master")
+                t1, t2, t3 = st.tabs(["👥 Colaboradores", "🔑 Reset", "💾 Backup"])
+                with t1:
+                    with st.form("u"):
+                        n = st.text_input("Nome"); e = st.text_input("E-mail"); c = st.selectbox("Cargo", ["Mecanico", "Gerente"])
+                        if st.form_submit_button("Cadastrar"):
+                            conn = conectar(); cursor = conn.cursor()
+                            try:
+                                cursor.execute("INSERT INTO usuarios (nome, email, cargo, nivel_acesso, senha_hash) VALUES (?,?,?,?,?)", (n, e, c, c, hash_senha("123456")))
+                                conn.commit(); st.success("Cadastrado! Senha padrão: 123456")
+                            except: st.error("E-mail já existe.")
+                            finally: conn.close()
+                with t2:
+                    conn = conectar(); usrs = pd.read_sql_query("SELECT email FROM usuarios", conn); conn.close()
+                    target = st.selectbox("E-mail para Reset", usrs['email']) if not usrs.empty else None
+                    if st.button("Resetar Senha") and target:
+                        conn = conectar(); cursor = conn.cursor()
+                        cursor.execute("UPDATE usuarios SET senha_hash=?, primeiro_acesso=1 WHERE email=?", (hash_senha("123456"), target))
+                        conn.commit(); conn.close(); st.warning(f"Senha de {target} resetada!")
+                with t3:
+                    if os.path.exists('oficina_mecanica_V2.db'):
+                        with open('oficina_mecanica_V2.db', 'rb') as f:
+                            st.download_button("📥 Baixar Backup", f, file_name="backup_oficina.db")
+            else: st.error("Acesso restrito.")
+
+        if st.sidebar.button("🚪 Sair"):
+            st.session_state.logado = False
+            st.rerun()
