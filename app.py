@@ -133,7 +133,7 @@ if page == "Login":
         user = login(email, pwd)
         if user:
             st.session_state.user = user
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.error("Credenciais inválidas ou usuário inativo.")
 
