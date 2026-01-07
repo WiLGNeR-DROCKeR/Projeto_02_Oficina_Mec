@@ -15,13 +15,13 @@ st.set_page_config(page_title="OficinaPro | ERP Master", page_icon="🛠️", la
 
 st.markdown("""
 <style>
-    /* 1. OCULTAR ELEMENTOS NATIVOS CIRCULADOS NA IMAGEM */
+    /* Ocultar elementos nativos do Streamlit circulados na imagem */
     .stAppDeployButton { display: none !important; }
     #MainMenu { visibility: hidden !important; }
     footer { visibility: hidden !important; }
     header { background: rgba(0,0,0,0) !important; }
 
-    /* 2. FIX DO MENU: Garante a visibilidade da seta roxa NuBank */
+    /* FIX DO MENU: Garante que a seta roxa do NuBank nunca suma */
     [data-testid="stSidebarCollapsedControl"] {
         visibility: visible !important;
         background-color: #8a05be !important; 
@@ -33,7 +33,7 @@ st.markdown("""
         padding: 5px !important;
     }
 
-    /* 3. ESTILIZAÇÃO PROFISSIONAL */
+    /* Estilização Profissional das Métricas */
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
     html, body, [class*="css"] { font-family: 'Roboto', sans-serif; background-color: #f8f9fa; }
     
@@ -136,7 +136,7 @@ if 'logado' not in st.session_state:
     st.session_state.update({'logado': False, 'perfil': None, 'email': None})
 
 if not st.session_state.logado:
-    st.title("🔐 OficinaPro Enterprise V6.3")
+    st.title("🔐 OficinaPro Enterprise V6.4")
     u = st.text_input("E-mail Profissional")
     p = st.text_input("Senha", type="password")
     if st.button("🚀 Acessar Painel"):
@@ -152,10 +152,9 @@ else:
     
     aba = st.sidebar.radio("Navegação Principal", menu)
 
-    # --- ABA INÍCIO (SINTAXE CORRIGIDA) ---
+    # --- ABA INÍCIO ---
     if aba == "🏠 Início":
         st.header("🏠 Bem-vindo ao OficinaPro.")
-        # A linha abaixo estava causando o SyntaxError. Corrigido!
         st.info("⬅️ Utilize o menu lateral para gerir a oficina.")
         
         c1, c2, c3 = st.columns(3)
@@ -180,7 +179,7 @@ else:
         if "chk" in st.session_state:
             gateway_pagamento(st.session_state.chk["valor"], st.session_state.chk["desc"], st.session_state.chk["cliente"])
 
-    # --- ABA ESTOQUE (LOTE E VALIDADE) ---
+    # --- ABA ESTOQUE ---
     elif aba == "📦 Estoque":
         st.header("📦 Gestão de Itens")
         with st.form("est"):
@@ -191,16 +190,16 @@ else:
             if tem_val: st.date_input("Vencimento")
             if st.form_submit_button("Salvar no Inventário"): st.success("Item registrado!")
 
-    # --- ABA FINANCEIRO (INADIMPLÊNCIA) ---
+    # --- ABA FINANCEIRO ---
     elif aba == "💰 Financeiro":
         st.header("💰 Gestão Financeira e Inadimplência")
         t1, t2 = st.tabs(["🚨 Devedores", "📊 BI Financeiro"])
         with t1:
             df_inad = pd.DataFrame({"Cliente": ["Oficina São João", "Cliente Avulso"], "Vencimento": ["2025-12-25", "2026-01-02"], "Valor": [450.0, 800.0]})
             st.table(df_inad)
-            if st.button("📲 Notificar Inadimplentes"): st.info("Cobranças enviadas via WhatsApp!")
+            if st.button("📲 Notificar Inadimplentes"): st.info("Cobranças enviadas!")
 
-    # --- ABA ADMIN (CLOUD BACKUP SIM) ---
+    # --- ABA ADMIN ---
     elif aba == "⚙️ Administração":
         st.header("⚙️ Configurações e Backup")
         if st.button("☁️ Sincronizar Google Drive (Simulação)"):
@@ -210,6 +209,15 @@ else:
                 prog.progress(i)
             st.success("Backup enviado com sucesso para wilgner.wss@hotmail.com!")
 
-    # --- ABA GESTÃO SAAS (MASTER) ---
+    # --- ABA GESTÃO SAAS (MASTER - LINHA CORRIGIDA) ---
     elif aba == "👑 Gestão SaaS":
-        st.header("👑 Painel Master
+        st.header("👑 Painel Master - Planos SaaS")
+        with st.form("plano"):
+            st.text_input("Nome do Novo Plano")
+            st.number_input("Preço Mensal Sugerido (R$)")
+            if st.form_submit_button("Publicar Plano"): 
+                st.success("Plano ativado na rede OficinaPro!")
+
+    if st.sidebar.button("🚪 Sair"):
+        st.session_state.logado = False
+        st.rerun()
