@@ -24,7 +24,7 @@ ADMIN_PASS = st.secrets["admin_password"]
 # 2. BANCO DE DADOS (DATABASE)
 # ==========================================
 def conectar():
-    return sqlite3.connect('oficina_mecanica.db', check_same_thread=False)
+    return sqlite3.connect('oficina_mecanica_V2.db', check_same_thread=False)
 
 def inicializar_db():
     conn = conectar(); cursor = conn.cursor()
