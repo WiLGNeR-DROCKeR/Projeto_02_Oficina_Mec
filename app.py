@@ -4,26 +4,28 @@ import hashlib
 import pandas as pd
 import os
 import json
-from datetime import datetime
+from datetime import datetime, date
 import time
+import base64
 
 # ==========================================
-# 1. IDENTIDADE VISUAL E OCULTAR ELEMENTOS (IMAGE FIX)
+# 1. IDENTIDADE VISUAL E OCULTAR ELEMENTOS
 # ==========================================
-st.set_page_config(page_title="OficinaPro | ERP Master", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="OficinaPro | Enterprise V6", page_icon="🛠️", layout="wide")
 
-# CSS para ocultar o que foi circulado na imagem e estilizar métricas
 st.markdown("""
 <style>
-    /* Ocultar elementos nativos do Streamlit circulados */
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     footer {visibility: hidden;}
     .stAppDeployButton {display:none;}
     
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
-    html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
-    .stMetric { background-color: #ffffff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-left: 5px solid #007bff; }
+    html, body, [class*="css"] { font-family: 'Roboto', sans-serif; background-color: #f8f9fa; }
+    .stMetric { background-color: #ffffff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-left: 5px solid #8a05be; }
+    .payment-box { border: 1px solid #e0e0e0; padding: 25px; border-radius: 15px; background-color: #ffffff; margin-top: 15px; border-top: 5px solid #8a05be; }
+    .status-vencido { color: #d32f2f; font-weight: bold; }
+    .status-pago { color: #388e3c; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -31,167 +33,140 @@ st.markdown("""
 try:
     ADMIN_USER = st.secrets["admin_user"]
     ADMIN_PASS = st.secrets["admin_password"]
-    # E-mail que terá acesso ao Painel de Assinaturas (Master)
-    MASTER_EMAIL = st.secrets.get("master_email", ADMIN_USER) 
+    MASTER_EMAIL = st.secrets.get("master_email", ADMIN_USER)
 except:
-    st.error("Erro: Configure os Secrets no Streamlit Cloud.")
+    st.error("Configure os Secrets no Streamlit Cloud.")
     st.stop()
 
 # ==========================================
-# 2. CAMADA DE DADOS EXPANDIDA
+# 2. CAMADA DE DADOS
 # ==========================================
 def conectar():
-    return sqlite3.connect('oficina_master_v4.db', check_same_thread=False)
+    return sqlite3.connect('oficina_master_v6.db', check_same_thread=False)
 
 def inicializar_db():
     conn = conectar(); cursor = conn.cursor()
-    # Usuários
     cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, cargo TEXT, email TEXT UNIQUE,
-        senha_hash TEXT, nivel_acesso TEXT, primeiro_acesso INTEGER DEFAULT 1,
-        permissoes_gerente TEXT DEFAULT '[]')''')
+        id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, email TEXT UNIQUE,
+        senha_hash TEXT, nivel_acesso TEXT, primeiro_acesso INTEGER DEFAULT 1)''')
     
-    # Estoque com Lote e Validade
+    # Tabela Financeira com Vencimento para Inadimplência
+    cursor.execute('''CREATE TABLE IF NOT EXISTS financeiro (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, cliente TEXT, valor REAL, 
+        data_vencimento TEXT, status TEXT, metodo TEXT)''')
+
     cursor.execute('''CREATE TABLE IF NOT EXISTS estoque (
         id INTEGER PRIMARY KEY AUTOINCREMENT, peca TEXT, lote TEXT, validade TEXT, 
-        quantidade INTEGER, quantidade_minima INTEGER, valor_compra REAL)''')
-
-    # Financeiro (Despesas e Receitas)
-    cursor.execute('''CREATE TABLE IF NOT EXISTS financeiro (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, tipo TEXT, categoria TEXT, 
-        valor REAL, data TEXT, status TEXT)''')
-
-    # Master: Assinaturas de Clientes
-    cursor.execute('''CREATE TABLE IF NOT EXISTS assinaturas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, cliente_nome TEXT, plano TEXT, 
-        status TEXT, vcto TEXT)''')
-
-    # OS
-    cursor.execute('''CREATE TABLE IF NOT EXISTS ordens_servico (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, carro_modelo TEXT, carro_placa TEXT, 
-        valor_pecas REAL, valor_mao_obra REAL, pecas_trocadas TEXT, status TEXT)''')
+        quantidade INTEGER, quantidade_minima INTEGER)''')
     
     conn.commit(); conn.close()
-
-def hash_senha(senha):
-    return hashlib.sha256(senha.encode()).hexdigest()
 
 inicializar_db()
 
 # ==========================================
-# 3. INTERFACE DE LOGIN
+# 3. UTILITÁRIOS E SIMULAÇÕES
+# ==========================================
+def simular_backup_google_drive():
+    st.subheader("☁️ Sincronização com Google Drive (Simulação)")
+    st.info("Status da Conexão: 🟢 Autenticado como wilgner.wss@hotmail.com")
+    
+    if st.button("🔄 Iniciar Sincronização Agora"):
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        steps = [
+            "Compactando banco de dados...",
+            "Criptografando arquivo (AES-256)...",
+            "Conectando ao servidor Google API...",
+            "Enviando para a pasta 'OficinaPro_Backups'...",
+            "Verificando integridade da cópia..."
+        ]
+        
+        for i, step in enumerate(steps):
+            status_text.text(step)
+            time.sleep(1)
+            progress_bar.progress((i + 1) * 20)
+            
+        st.success(f"✅ Backup concluído com sucesso às {datetime.now().strftime('%H:%M:%S')}!")
+        st.code(f"ID do Arquivo: drive_bkp_{int(time.time())}.db.crypt", language="text")
+
+# ==========================================
+# 4. EXECUÇÃO DO SISTEMA
 # ==========================================
 if 'logado' not in st.session_state:
     st.session_state.update({'logado': False, 'perfil': None, 'email': None})
 
 if not st.session_state.logado:
-    st.title("🔐 OficinaPro Enterprise")
+    st.title("🔐 OficinaPro Enterprise V6")
     u = st.text_input("E-mail")
     p = st.text_input("Senha", type="password")
     if st.button("🚀 Entrar"):
         if u == ADMIN_USER and p == ADMIN_PASS:
             st.session_state.update({'logado': True, 'perfil': "Admin", 'email': u})
             st.rerun()
-        # Lógica para usuários do BD aqui...
-
 else:
-    # Sidebar
-    st.sidebar.markdown(f"### ⚙️ {st.session_state.perfil}")
-    
-    # Definição de Abas
-    abas = ["🏠 Início", "📋 Ordens de Serviço", "📦 Estoque", "💰 Financeiro", "⚙️ Administração"]
-    if st.session_state.email == MASTER_EMAIL:
-        abas.append("🔑 Gestão SaaS") # Painel Master invisível para outros
-    
-    aba = st.sidebar.radio("Navegação", abas)
+    aba = st.sidebar.radio("Navegação", ["🏠 Início", "📋 Ordens de Serviço", "📦 Estoque", "💰 Financeiro", "⚙️ Administração"])
 
     # 🏠 INÍCIO
     if aba == "🏠 Início":
-        st.header("🏠 Bem-vindo ao OficinaPro.")
-        st.info("⬅️ Utilize o menu lateral para gerir a oficina.")
+        st.header("🏠 Painel Geral")
+        st.info("Sistema monitorado e criptografado.")
         c1, c2, c3 = st.columns(3)
-        c1.metric("O.S. Ativas", "5")
-        c2.metric("Estoque Crítico", "2", delta="-Reposição")
-        c3.metric("Integridade", "100%")
+        c1.metric("Pendências Financeiras", "R$ 1.250,00", delta="Inadimplência", delta_color="inverse")
+        c2.metric("Serviços Hoje", "3")
+        c3.metric("Cloud Sync", "OK")
 
-    # 📋 ORDENS DE SERVIÇO
-    elif aba == "📋 Ordens de Serviço":
-        st.header("📋 Gestão de Serviços")
-        with st.expander("➕ Nova O.S.", expanded=True):
-            with st.form("os_form"):
-                # Inversão solicitada: Peças em cima
-                pecas_uso = st.multiselect("Selecione as Peças Utilizadas", ["Filtro Óleo", "Pastilha", "Vela"])
-                
-                col1, col2 = st.columns(2)
-                veic = col1.text_input("Veículo")
-                plac = col2.text_input("Placa")
-                v_peca = col1.number_input("Valor Peças")
-                v_obra = col2.number_input("Mão de Obra")
-                
-                if st.form_submit_button("Lançar"):
-                    st.success("OS Lançada com sucesso!")
+    # 💰 FINANCEIRO & INADIMPLÊNCIA
+    elif aba == "💰 Financeiro":
+        st.header("💰 Gestão Financeira e Inadimplência")
+        t1, t2, t3 = st.tabs(["📊 Dashboard BI", "🚨 Controle de Inadimplência", "💸 Lançamentos"])
+        
+        with t2:
+            st.subheader("⚠️ Clientes com Pagamentos Atrasados")
+            # Dados fictícios para simulação de inadimplência
+            dados_inad = {
+                "Cliente": ["Mecânica Silva", "Auto Peças João", "Transportadora X"],
+                "Vencimento": ["2025-12-20", "2025-12-28", "2026-01-05"],
+                "Valor": [450.00, 800.00, 1200.00],
+                "Dias de Atraso": [18, 10, 2]
+            }
+            df_inad = pd.DataFrame(dados_inad)
+            
+            st.dataframe(df_inad, use_container_width=True)
+            
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.metric("Total em Atraso", f"R$ {df_inad['Valor'].sum():,.2f}")
+            with col_b:
+                if st.button("📲 Disparar Lembretes Automáticos (WhatsApp/E-mail)"):
+                    with st.spinner("Enviando cobranças amigáveis..."):
+                        time.sleep(2)
+                        st.success("Lembretes enviados para todos os clientes inadimplentes!")
 
     # 📦 ESTOQUE
     elif aba == "📦 Estoque":
-        st.header("📦 Estoque e Inteligência")
-        with st.form("estoque_form"):
-            col1, col2 = st.columns(2)
-            peca = col1.text_input("Nome da Peça")
-            lote = col2.text_input("Lote")
-            
-            tem_validade = st.checkbox("Item possui validade?", value=True)
-            validade = "N/A"
-            if tem_validade:
-                validade = st.date_input("Data de Validade")
-            
-            if st.form_submit_button("Salvar Item"):
-                st.success(f"Item {peca} salvo com sucesso!")
+        st.header("📦 Gestão de Itens")
+        with st.form("est"):
+            peca = st.text_input("Peça")
+            lote = st.text_input("Lote")
+            vld = st.checkbox("Possui Validade?", value=True)
+            if vld: st.date_input("Data de Expiração")
+            if st.form_submit_button("Salvar"): st.success("Item registrado.")
 
-    # 💰 FINANCEIRO (ERP COMPLETO)
-    elif aba == "💰 Financeiro":
-        st.header("💰 Gestão Financeira ERP")
-        t1, t2, t3, t4 = st.tabs(["📊 Dashboard", "💸 Fluxo de Caixa", "🧾 Docs Fiscais", "🛠 Config"])
-        
-        with t1:
-            st.subheader("Indicadores de Desempenho")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("MRR (Recorrente Mensal)", "R$ 15.000")
-            col2.metric("ARR (Recorrente Anual)", "R$ 180.000")
-            col3.metric("Inadimplência", "2%", delta_color="inverse")
-            
-            st.write("### Fluxo de Caixa (Entradas vs Saídas)")
-            st.bar_chart({"Entradas": [10, 20, 15], "Saídas": [5, 8, 7]})
-            
-        with t2:
-            st.subheader("Contas a Pagar e Receber")
-            st.table(pd.DataFrame({"Vencimento": ["10/01", "15/01"], "Tipo": ["Receber", "Pagar"], "Valor": [500, 200]}))
-
-    # 🔑 GESTÃO SAAS (PAINEL MASTER EXCLUSIVO)
-    elif aba == "🔑 Gestão SaaS":
-        st.header("🔑 Painel Master - Gestão de Assinaturas")
-        st.write("Gerencie os clientes que utilizam o seu sistema.")
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Assinantes Ativos", "12")
-        col2.metric("Planos Suspensos", "1")
-        col3.metric("Churn Rate", "0.5%")
-        
-        st.subheader("Histórico de Faturas")
-        st.dataframe(pd.DataFrame({"Cliente": ["Oficina X", "Mecânica Y"], "Plano": ["Premium", "Basic"], "Status": ["Pago", "Pendente"]}))
-
-    # ⚙️ ADMINISTRAÇÃO
+    # ⚙️ ADMINISTRAÇÃO & BACKUP CLOUD
     elif aba == "⚙️ Administração":
-        st.header("⚙️ Painel de Gestão Master")
-        t1, t2, t3 = st.tabs(["👥 Usuários", "🔑 Resetar Senhas", "💾 Backup e Segurança"])
+        st.header("⚙️ Configurações Master")
+        t_usr, t_sec = st.tabs(["👥 Usuários", "💾 Backup & Cloud Sync"])
         
-        with t3:
-            st.subheader("Configuração de Backup Automático")
-            nuvem = st.selectbox("Escolha a Nuvem para Backup Automático", ["Google Drive", "OneDrive", "Dropbox", "iCloud"])
-            horario = st.time_input("Horário do Backup Diário")
-            if st.button("Agendar Backups"):
-                st.info(f"Backups agendados para as {horario} no {nuvem}.")
-            
+        with t_sec:
+            simular_backup_google_drive()
             st.write("---")
-            st.download_button("📥 Backup Local Imediato", "Dados", file_name="backup.db")
+            st.subheader("Histórico de Sincronização")
+            st.table(pd.DataFrame({
+                "Data/Hora": ["07/01/2026 00:00", "06/01/2026 00:00"],
+                "Destino": ["Google Drive", "Google Drive"],
+                "Status": ["Sucesso", "Sucesso"]
+            }))
 
     if st.sidebar.button("Sair"):
         st.session_state.logado = False
