@@ -1,151 +1,41 @@
 import streamlit as st
 import sqlite3
 import hashlib
-from datetime import datetime, date
-import plotly.express as px
 import pandas as pd
+import os
+import plotly.express as px
 
-# ---------- Config ----------
-st.set_page_config(page_title="Oficina Mecânica", layout="wide")
-DB_PATH = "oficina.db"
+# ==========================================
+# 1. CONFIGURAÇÕES E IDENTIDADE VISUAL
+# ==========================================
+st.set_page_config(page_title="OficinaPro | Inteligência de Negócio", page_icon="💰", layout="wide")
 
-# ---------- Helpers ----------
-def get_conn():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
+# CSS para cards financeiros profissionais
+st.markdown("""
+    <style>
+    [data-testid="stMetricValue"] { font-size: 28px; }
+    .stMetric { background-color: #ffffff; padding: 20px; border-radius: 12px; 
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-left: 5px solid #007bff; }
+    </style>
+    """, unsafe_allow_html=True)
 
-def hash_pwd(pwd: str) -> str:
-    return hashlib.sha256(pwd.encode()).hexdigest()
+ADMIN_USER = st.secrets["admin_user"]
+ADMIN_PASS = st.secrets["admin_password"]
 
-def init_db():
-    conn = get_conn()
-    cur = conn.cursor()
-    # Usuários
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nome TEXT,
-        email TEXT UNIQUE,
-        senha_hash TEXT,
-        papel TEXT CHECK(papel IN ('colaborador','gerente','admin')),
-        ativo INTEGER DEFAULT 1
-    )""")
-    # Ordens de serviço
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS ordens_servico (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        cliente TEXT,
-        veiculo TEXT,
-        placa TEXT,
-        descricao TEXT,
-        status TEXT,
-        responsavel_id INTEGER,
-        data_abertura TEXT,
-        data_prevista TEXT,
-        valor_bruto REAL,
-        percentual_mecanico REAL DEFAULT 0.3,
-        bonus REAL DEFAULT 0,
-        progresso INTEGER DEFAULT 0
-    )""")
-    # Peças
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS pecas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nome TEXT,
-        sku TEXT UNIQUE,
-        estoque_atual INTEGER DEFAULT 0,
-        estoque_minimo INTEGER DEFAULT 0,
-        preco_medio REAL DEFAULT 0
-    )""")
-    # Fornecedores
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS fornecedores (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nome TEXT,
-        cnpj TEXT,
-        contato TEXT
-    )""")
-    # Cotações
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS cotacoes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        fornecedor_id INTEGER,
-        peca_id INTEGER,
-        preco REAL,
-        data TEXT
-    )""")
-    conn.commit()
-    # Seed admin
-    cur.execute("SELECT COUNT(*) FROM users WHERE papel='admin'")
-    if cur.fetchone()[0] == 0:
-        cur.execute("INSERT INTO users (nome,email,senha_hash,papel) VALUES (?,?,?,?)",
-                    ("Admin", "admin@oficina.local", hash_pwd("admin123"), "admin"))
-        conn.commit()
-    conn.close()
+# ==========================================
+# 2. BANCO DE DADOS (DATABASE)
+# ==========================================
+@st.cache_resource
+def conectar():
+    return sqlite3.connect('oficina_mecanica.db', check_same_thread=False)
 
-def login(email, pwd):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT id,nome,email,senha_hash,papel,ativo FROM users WHERE email=?", (email,))
-    row = cur.fetchone()
-    conn.close()
-    if row and row[3] == hash_pwd(pwd) and row[5] == 1:
-        return {"id": row[0], "nome": row[1], "email": row[2], "papel": row[4]}
-    return None
-
-def require_role(roles):
-    user = st.session_state.get("user")
-    return user and user["papel"] in roles
-
-def alerta_linha_vermelha():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT nome, sku, estoque_atual, estoque_minimo FROM pecas")
-    rows = cur.fetchall()
-    conn.close()
-    criticas = [r for r in rows if r[2] <= r[3]]
-    if criticas:
-        st.warning(f"Peças em linha vermelha: {len(criticas)}")
-        st.table({"Nome": [r[0] for r in criticas],
-                  "SKU": [r[1] for r in criticas],
-                  "Estoque": [r[2] for r in criticas],
-                  "Mínimo": [r[3] for r in criticas]})
-
-# ---------- Init ----------
-init_db()
-if "user" not in st.session_state:
-    st.session_state.user = None
-
-# ---------- Sidebar ----------
-st.sidebar.title("Oficina Mecânica")
-if st.session_state.user:
-    st.sidebar.success(f"Logado como {st.session_state.user['nome']} ({st.session_state.user['papel']})")
-    page = st.sidebar.radio("Navegação", ["Dashboard", "Trabalhos", "Gestão", "Estoque", "Admin", "Sair"])
-else:
-    page = "Login"
-
-# ---------- Pages ----------
-# Login
-if page == "Login":
-    st.title("Acesso")
-    email = st.text_input("Email")
-    pwd = st.text_input("Senha", type="password")
-    if st.button("Entrar"):
-        user = login(email, pwd)
-        if user:
-            st.session_state.user = user
-            st.rerun()   # ✅ corrigido
-        else:
-            st.error("Credenciais inválidas ou usuário inativo.")
-
-# Dashboard
-elif page == "Dashboard":
-    st.title("Painel Principal")
-    conn = get_conn()
-    df = pd.read_sql("SELECT * FROM ordens_servico", conn)
-    conn.close()
-    col1, col2, col3 = st.columns(3)
-    if not df.empty:
-        df["ganho_mecanico"] = df["valor_bruto"] * df["percentual_mecanico"] + df["bonus"]
-        df["ganho_empresa"] = df["valor_bruto"] - df["ganho_mecanico"]
-        with col1:
-            st.metric("Receita Empresa (total)", f"R$ {df['ganho_empresa'].sum():,.2f}")
+def inicializar_db():
+    conn = conectar(); cursor = conn.cursor()
+    # Tabela de usuários
+    cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, email TEXT UNIQUE, 
+        cargo TEXT, nivel_acesso TEXT, senha_hash TEXT, primeiro_acesso INTEGER DEFAULT 1)''')
+    
+    # Tabela de estoque
+    cursor.execute('''CREATE TABLE IF NOT EXISTS estoque (
+        id INTEGER
